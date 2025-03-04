@@ -1,5 +1,6 @@
 *Original work from the [pcaversaccio/safe-tx-hashes-util](https://github.com/pcaversaccio/safe-tx-hashes-util) repo. This has been forked from there.*
-*Forked one more time the [Cyfrin/safe-tx-hashes/](https://github.com/Cyfrin/safe-tx-hashes/) repo.
+
+*Forked one more time the [Cyfrin/safe-tx-hashes/](https://github.com/Cyfrin/safe-tx-hashes/) repo.*
 
 # Safe Multisig Transaction Hashes <!-- omit from toc -->
 
