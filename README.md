@@ -1,4 +1,5 @@
 *Original work from the [pcaversaccio/safe-tx-hashes-util](https://github.com/pcaversaccio/safe-tx-hashes-util) repo. This has been forked from there.*
+*Forked one more time the [Cyfrin/safe-tx-hashes/](https://github.com/Cyfrin/safe-tx-hashes/) repo.
 
 # Safe Multisig Transaction Hashes <!-- omit from toc -->
 
@@ -138,7 +139,7 @@ bash --version
 ### Curl
 
 ```bash
-curl -L https://raw.githubusercontent.com/cyfrin/safe-tx-hashes/main/install.sh | bash
+curl -L https://raw.githubusercontent.com/lidofinance/safe-tx-hashes/main/install.sh | bash
 ```
 
 ### Source
@@ -146,7 +147,7 @@ curl -L https://raw.githubusercontent.com/cyfrin/safe-tx-hashes/main/install.sh 
 You can run scripts directly from this repository.
 
 ```bash
-git clone https://github.com/Cyfrin/safe-tx-hashes
+git clone https://github.com/lidofinance/safe-tx-hashes
 cd safe-tx-hashes
 ```
 
@@ -275,9 +276,9 @@ To list all supported networks:
 
 ## Not Initialized Transactions
 
-For transactions that have not been initialized yet, the steps are a little different. 
+For transactions that have not been initialized yet, the steps are a little different.
 
-# Usage - Offline 
+# Usage - Offline
 
 When passing the `--offline` flag.
 
@@ -285,7 +286,7 @@ When passing the `--offline` flag.
 
 We can remove trust assumptions on the [Safe transaction service API](https://docs.safe.global/core-api/transaction-service-overview)!
 
-You can optionally, run this script using the `--offline` subcommand. 
+You can optionally, run this script using the `--offline` subcommand.
 
 To calculate the Safe transaction hashes for a transaction that hasn't been initialized yet, or where you don't want to trust the safe transaction API, you can specify all the parameters. An example:
 
@@ -394,7 +395,7 @@ Safe message hash: 0x1866b559f56261ada63528391b93a1fe8e2e33baf7cace94fc6b42202d1
 > [!NOTE]
 > If you do not pass `--offline` for this, the script will attempt to get the correct Safe version from the API. If you want this to be 100% offline, be sure to pass the `--offline` flag!
 
-# Trust Assumptions 
+# Trust Assumptions
 
 1. You trust my [script](./safe_hashes.sh) 😃.
 2. You trust Linux.
@@ -409,7 +410,7 @@ Safe message hash: 0x1866b559f56261ada63528391b93a1fe8e2e33baf7cace94fc6b42202d1
 
 # Testing
 
-As of today, we are trying to keep this repo as minimal as possible, and not use a real testing framework like [bats](https://github.com/bats-core/bats-core). The current test just runs a single offline mode test. We may expand this in the future. 
+As of today, we are trying to keep this repo as minimal as possible, and not use a real testing framework like [bats](https://github.com/bats-core/bats-core). The current test just runs a single offline mode test. We may expand this in the future.
 
 ```
 bash test.sh
