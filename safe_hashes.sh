@@ -638,7 +638,7 @@ calculate_safe_hashes() {
     # Only get api_url and version in online mode or for message files
     if [[ "$offline" != "true" || -n "$message_file" ]]; then
         api_url=$(get_api_url "$network")
-        version=$(curl -sf "${api_url}/api/v1/safes/${address}/" | jq -r ".version // \"0.0.0\"")
+        version=$(curl -sfL "${api_url}/api/v1/safes/${address}/" | jq -r ".version // \"0.0.0\"")
     fi
 
     # Handle message file mode first
@@ -683,7 +683,7 @@ handle_online_mode() {
     validate_nonce "$nonce"
 
     # Fetch the transaction data from the API.
-    local response=$(curl -sf "$endpoint")
+    local response=$(curl -sfL "$endpoint")
 
     # For debugging purposes:
     # echo "Endpoint: $endpoint"
