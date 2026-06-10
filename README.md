@@ -69,6 +69,7 @@ This Bash [script](./safe_hashes.sh) calculates the Safe transaction hashes by r
 - Linea (identifier: `linea`, chain ID: `59144`)
 - Mantle (identifier: `mantle`, chain ID: `5000`)
 - Optimism (identifier: `optimism`, chain ID: `10`)
+- Plasma (identifier: `plasma`, chain ID: `9745`)
 - Polygon (identifier: `polygon`, chain ID: `137`)
 - Polygon zkEVM (identifier: `polygon-zkevm`, chain ID: `1101`)
 - Scroll (identifier: `scroll`, chain ID: `534352`)
