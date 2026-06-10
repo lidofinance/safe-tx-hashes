@@ -8,6 +8,7 @@
 # @author pcaversaccio
 
 # Set the terminal formatting constants.
+readonly YELLOW="\e[33m"
 readonly GREEN="\e[32m"
 readonly RED="\e[31m"
 readonly UNDERLINE="\e[4m"
@@ -102,6 +103,8 @@ declare -A -r API_URLS=(
     ["xlayer"]="https://api.safe.global/tx-service/okb"
     ["zksync"]="https://api.safe.global/tx-service/zksync"
 )
+readonly SAFE_CLIENT_API_URL="https://safe-client.safe.global/v1/chains"
+readonly DEFAULT_OFFLINE_SAFE_VERSION="1.3.0"
 
 # Define the chain IDs of the supported networks from the Safe transaction service.
 declare -A -r CHAIN_IDS=(
@@ -129,7 +132,7 @@ declare -A -r CHAIN_IDS=(
 )
 
 version() {
-    echo "safe_hashes 0.1.3"
+    echo "safe_hashes 0.1.5"
     exit 0
 }
 
@@ -138,7 +141,7 @@ usage() {
     cat <<EOF
 Usage: $0 [--help] [--list-networks]
        --network <network> --address <address> --nonce <nonce> [--untrusted]
-       --message <file> print-mst-calldata
+       --message <file> print-mst-calldata --safe-version <version>
        $0 --offline --network <network> --address <address> --nonce <nonce> [OPTIONS]
 
 Options:
@@ -152,6 +155,7 @@ Options:
   --untrusted           Use untrusted endpoint (adds trusted=false parameter to API calls)
   --offline             Calculate transaction hash offline with custom parameters
   --print-mst-calldata  Print the calldata for the entire multi-sig transaction       
+  --safe-version        Safe version (default: 1.3.0)
 
 Additional options for offline mode:
   --to                  Target address (required in offline mode)
@@ -163,7 +167,6 @@ Additional options for offline mode:
   --gas-price           GasPrice (default: 0)
   --gas-token           Gas token address (default: 0x0000...0000)
   --refund-receiver     Refund receiver address (default: 0x0000...0000)
-  --safe-version        Safe version (default: 1.3.0)
 
 Examples:
   # Online transaction hash calculation (trusted by default):
@@ -350,6 +353,7 @@ get_version() {
 # Utility function to validate the Safe multisig version.
 validate_version() {
     local version=$1
+
     if [[ -z "$version" ]]; then
         echo "$(tput setaf 3)No Safe multisig contract found for the specified network. Please ensure that you have selected the correct network.$(tput setaf 0)"
         exit 0
@@ -475,10 +479,37 @@ validate_network() {
 }
 
 # Utility function to retrieve the API URL of the selected network.
-get_api_url() {
+get_api_url_and_response() {
     local network="$1"
+    local address="$2"
+    local api_url
+    
     validate_network "$network"
-    echo "${API_URLS[$network]}"
+    api_url="${API_URLS[$network]}"
+    
+    # Fetch the safe info and handle potential errors
+    local safe_info_response
+    local response_body
+    local status_code
+    
+    safe_info_response=$(curl -s -w "\n%{http_code}" "${api_url}/api/v1/safes/${address}/")
+    response_body=$(echo "$safe_info_response" | sed '$d')
+    status_code=$(echo "$safe_info_response" | tail -n1)
+    
+    # If 404, try alternative API
+    if [[ "$status_code" == "404" ]]; then
+        echo -e "${YELLOW}Warning: 404 returned from Safe Transaction API. We will attempt to use the client API instead.${RESET}" >&2
+        api_url="$SAFE_CLIENT_API_URL"
+    fi
+    
+    # Check for empty response
+    if [[ -z "$response_body" ]]; then
+        echo -e "${RED}Error: Empty response from Safe API${RESET}" >&2
+        exit 1
+    fi
+    
+    # Keep this line like this to return the values
+    echo "$api_url $response_body"
 }
 
 # Utility function to retrieve the chain ID of the selected network.
@@ -589,7 +620,7 @@ calculate_safe_hashes() {
         usage
     fi
 
-    local network="" address="" nonce="" message_file="" offline=false version="1.3.0" untrusted=false
+    local network="" address="" nonce="" message_file="" offline=false version="" untrusted=false
     local offline_to="" offline_value="0" offline_data="0x" offline_operation="0"
     local offline_safe_tx_gas="0" offline_base_gas="0" offline_gas_price="0"
     local offline_gas_token="0x0000000000000000000000000000000000000000"
@@ -623,13 +654,13 @@ calculate_safe_hashes() {
         esac
     done
 
+
     # Validation
     if [[ "$offline" == true && "$print_mst_calldata" == true ]]; then
         echo -e "${RED}Error: The --print-mst-calldata option is not supported in offline mode. Please remove it and try again.${RESET}" >&2
         exit 1
     fi
 
-    # Validate if the required parameters have the correct format.
     validate_network "$network"
     validate_address "$address"
     local chain_id=$(get_chain_id "$network")
@@ -637,8 +668,30 @@ calculate_safe_hashes() {
 
     # Only get api_url and version in online mode or for message files
     if [[ "$offline" != "true" || -n "$message_file" ]]; then
-        api_url=$(get_api_url "$network")
-        version=$(curl -sf "${api_url}/api/v1/safes/${address}/" | jq -r ".version // \"0.0.0\"")
+        # api_url=$(get_api_url_and_response "$network" "$address")
+
+        read api_url response_body < <(get_api_url_and_response "$network" "$address")
+
+        # Check if we're using the client API and need version from command line
+        if [[ "$api_url" == "$SAFE_CLIENT_API_URL" ]]; then
+            # Check if --safe-version was provided in command line
+            if [[ -z "$version" ]]; then
+                echo -e "${RED}Error: When using the client API, you must specify the Safe version. ie using --safe-version "1.3.0" ${RESET}" >&2
+                exit 1
+            fi
+        else
+            # Check if version is already set
+            if [[ -n "$version" ]]; then
+                echo -e "${YELLOW}Warning: Overriding previously set version with value from API response${RESET}" >&2
+            fi
+            # Extract version from the API response
+            version=$(echo "$response_body" | jq -r ".version // \"0.0.0\"")
+
+            if [[ -z "$version" || "$version" == "0.0.0" ]]; then
+                version="$DEFAULT_OFFLINE_SAFE_VERSION"
+                echo -e "${YELLOW}Warning: Using default version 1.3.0${RESET}" >&2
+            fi
+        fi
     fi
 
     # Handle message file mode first
@@ -673,7 +726,19 @@ handle_online_mode() {
     local untrusted="$7"
     local print_mst_calldata="$8"
 
-    local endpoint="${api_url}/api/v1/safes/${address}/multisig-transactions/?nonce=${nonce}"
+    local endpoint
+
+    if [[ "$api_url" == "$SAFE_CLIENT_API_URL" ]]; then
+        # Use client API format
+        endpoint="${api_url}/${chain_id}/safes/${address}/multisig-transactions/raw?nonce=${nonce}"
+    else
+        # Use transaction API format
+        endpoint="${api_url}/api/v1/safes/${address}/multisig-transactions/?nonce=${nonce}"
+        
+        if [[ "$untrusted" == "true" ]]; then
+            endpoint="${endpoint}&trusted=false"
+        fi
+    fi
 
     if [[ "$untrusted" == "true" ]]; then
         endpoint="${endpoint}&trusted=false"
@@ -801,6 +866,11 @@ handle_offline_mode() {
     local offline_gas_price="${12}"
     local offline_gas_token="${13}"
     local offline_refund_receiver="${14}"
+
+    if [[ -z "$version" ]]; then
+        version=$DEFAULT_OFFLINE_SAFE_VERSION
+        echo -e "${YELLOW}Warning: No version detected. Using default version ${version}${RESET}" >&2
+    fi
 
     if [[ -z "$network" || -z "$address" || -z "$offline_to" || -z "$nonce" ]]; then
         echo -e "${BOLD}${RED}Error: network, address, to, and nonce are required for offline mode${RESET}" >&2
