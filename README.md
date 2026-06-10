@@ -1,6 +1,3 @@
-> [!NOTE]  
-> We will be deprecating this project in favor of the rust edition of this script. Head over to [safe-hash-rs](https://github.com/Cyfrin/safe-hash-rs)!
-
 *Original work from the [pcaversaccio/safe-tx-hashes-util](https://github.com/pcaversaccio/safe-tx-hashes-util) repo. This has been forked from there.*
 
 *Forked one more time the [Cyfrin/safe-tx-hashes/](https://github.com/Cyfrin/safe-tx-hashes/) repo.*
