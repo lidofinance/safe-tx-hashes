@@ -63,7 +63,6 @@ This Bash [script](./safe_hashes.sh) calculates the Safe transaction hashes by r
 - Avalanche (identifier: `avalanche`, chain ID: `43114`)
 - Base (identifier: `base`, chain ID: `8453`)
 - Base Sepolia (identifier: `base-sepolia`, chain ID: `84532`)
-- Blast (identifier: `blast`, chain ID: `81457`)
 - BSC (Binance Smart Chain) (identifier: `bsc`, chain ID: `56`)
 - Celo (identifier: `celo`, chain ID: `42220`)
 - Ethereum (identifier: `ethereum`, chain ID: `1`)
