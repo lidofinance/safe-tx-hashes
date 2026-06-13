@@ -366,7 +366,6 @@ decode_calldata_4byte() {
                 mapfile -t types < <(split_top_level_types "$types_str")
                 mapfile -t values <<< "$decoded"
                 params_json=$(
-                    local j
                     for (( j=0; j<${#types[@]}; j++ )); do
                         jq -n --arg t "${types[j]}" --arg v "${values[j]:-}" \
                             '{type: $t, value: $v}'
