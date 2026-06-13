@@ -38,6 +38,7 @@ This Bash [script](./safe_hashes.sh) calculates the Safe transaction hashes by r
 - [Usage - Safe API Transaction Hash Verification](#usage---safe-api-transaction-hash-verification)
   - [Already Initialized Transactions](#already-initialized-transactions)
   - [Not Initialized Transactions](#not-initialized-transactions)
+  - [Decoding Nested Calls](#decoding-nested-calls)
 - [Usage - Offline](#usage---offline)
   - [Safe Transaction Hashes](#safe-transaction-hashes)
     - [Batch (multiSend) example](#batch-multisend-example)
@@ -55,6 +56,7 @@ This Bash [script](./safe_hashes.sh) calculates the Safe transaction hashes by r
 3. Support for using "raw" calldata to verify transaction hashes
 4. Support for using the Safe API for verifying transaction hashes before signing (using the `untrusted` flag)
 5. Works with 1-of-1 multisigs with the `--untrusted` flag
+6. Best-effort decoding of nested `multiSend` calls via the 4byte directory (using the `--decode-calls` flag)
 
 ## Supported Networks
 
@@ -329,6 +331,27 @@ safe_hashes --list-networks
 ## Not Initialized Transactions
 
 For transactions that have not been initialized yet, the steps are a little different.
+
+## Decoding Nested Calls
+
+For batched transactions (`multiSend`), the Safe Transaction Service decodes the top-level call but often returns the nested calls as `"dataDecoded": null` when it doesn't know the ABI of the target contracts (common on newer networks). Pass the `--decode-calls` flag to additionally decode those nested calls via the [4byte directory](https://www.4byte.directory/):
+
+```console
+safe_hashes --network arbitrum --address 0x111CEEee040739fD91D29C34C33E6B3E112F2177 --nonce 234 --decode-calls
+```
+
+This adds a human-readable `Decoded Call Operations` block summarizing each nested operation:
+
+```console
+> Decoded Call Operations:
+[0] CALL -> 0x1111111111111111111111111111111111111111
+    grantRole(0x0000000000000000000000000000000000000000000000000000000000000000, 0x2222222222222222222222222222222222222222)
+[1] CALL -> 0x3333333333333333333333333333333333333333
+    disallowCalls([(0x4444444444444444444444444444444444444444, 0x5555555555555555555555555555555555555555, 0xa9059cbb)])
+```
+
+> [!NOTE]
+> Decoding is best-effort and cosmetic only — it does not affect hash computation. The 4byte directory can return multiple signatures for the same selector (collisions), and resolved parameters are positional without argument names. Treat the decoded output as a hint, not a source of truth. Calls whose selector cannot be resolved are shown as `(unable to decode selector 0x…)`.
 
 # Usage - Offline
 
