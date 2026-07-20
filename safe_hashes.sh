@@ -154,8 +154,9 @@ Options:
   --message <file>      Specify the message file (required for off-chain message hashes)
   --untrusted           Use untrusted endpoint (adds trusted=false parameter to API calls)
   --offline             Calculate transaction hash offline with custom parameters
-  --print-mst-calldata  Print the calldata for the entire multi-sig transaction       
+  --print-mst-calldata  Print the calldata for the entire multi-sig transaction
   --safe-version        Safe version (default: 1.3.0)
+  --decode-calls        Best-effort decode of nested calls via the 4byte directory
 
 Additional options for offline mode:
   --to                  Target address (required in offline mode)
@@ -181,6 +182,9 @@ Examples:
   # Offline transaction hash calculation:
   $0 --offline --network ethereum --address 0x1234...5678 --to 0x9876...5432 \\
      --data 0x095e...0001 --value 1000000000000000000 --nonce 42
+
+  # Decode nested multiSend calls via the 4byte directory:
+  $0 --network ethereum --address 0x1234...5678 --nonce 42 --decode-calls
 
 EOF
     exit 1
@@ -307,9 +311,137 @@ print_hash_info() {
     print_field "Safe transaction hash" "$safe_tx_hash"
 }
 
+# Utility function to split a comma-separated type list at the top level,
+# respecting nested parentheses (tuples) and brackets (arrays).
+split_top_level_types() {
+    local s="$1"
+    local depth=0 cur="" ch i
+    local -a out=()
+    for (( i=0; i<${#s}; i++ )); do
+        ch="${s:i:1}"
+        case "$ch" in
+        "(" | "[") depth=$((depth + 1)); cur+="$ch" ;;
+        ")" | "]") depth=$((depth - 1)); cur+="$ch" ;;
+        ",")
+            if (( depth == 0 )); then
+                out+=("$cur"); cur=""
+            else
+                cur+="$ch"
+            fi
+            ;;
+        *) cur+="$ch" ;;
+        esac
+    done
+    [[ -n "$cur" ]] && out+=("$cur")
+    (( ${#out[@]} > 0 )) && printf "%s\n" "${out[@]}"
+}
+
+# Utility function to best-effort decode calldata via the 4byte directory.
+# Echoes a `{method, parameters}` JSON object on success, or an empty string
+# when the selector is unknown or none of the candidate signatures decode.
+decode_calldata_4byte() {
+    local data="$1"
+
+    # Require at least a 4-byte selector.
+    [[ "$data" =~ ^0x[0-9a-fA-F]{8} ]] || { echo ""; return; }
+    local selector="0x${data:2:8}"
+
+    # Resolve candidate signatures (the directory may return several).
+    local sigs
+    sigs=$(cast 4byte "$selector" 2>/dev/null) || { echo ""; return; }
+    [[ -z "$sigs" ]] && { echo ""; return; }
+
+    local sig decoded types_str method params_json
+    local -a types=() values=()
+    while IFS= read -r sig; do
+        [[ -z "$sig" ]] && continue
+        # Try this candidate; a wrong signature usually fails to decode.
+        if decoded=$(cast decode-calldata "$sig" "$data" 2>/dev/null); then
+            method="${sig%%(*}"
+            types_str="${sig#*(}"; types_str="${types_str%)}"
+
+            if [[ -z "${types_str// /}" ]]; then
+                params_json="[]"
+            else
+                mapfile -t types < <(split_top_level_types "$types_str")
+                mapfile -t values <<< "$decoded"
+                params_json=$(
+                    for (( j=0; j<${#types[@]}; j++ )); do
+                        jq -n --arg t "${types[j]}" --arg v "${values[j]:-}" \
+                            '{type: $t, value: $v}'
+                    done | jq -s "."
+                )
+            fi
+
+            jq -n --arg m "$method" --argjson p "${params_json:-[]}" \
+                '{method: $m, parameters: $p}'
+            return
+        fi
+    done <<< "$sigs"
+
+    echo ""
+}
+
+# Utility function to fill in `dataDecoded` for nested multiSend calls that the
+# Safe transaction service returned as `null`, using the 4byte directory.
+enrich_decoded_data() {
+    local dd="$1"
+
+    # Collect targets as "<paramIndex> <valueIndex> <data>" lines.
+    local targets
+    targets=$(echo "$dd" | jq -r '
+        (.parameters // []) | to_entries[] | .key as $p |
+        (.value.valueDecoded // []) | to_entries[] |
+        select(.value.dataDecoded == null and (.value.data // "0x") != "0x") |
+        "\($p) \(.key) \(.value.data)"')
+
+    [[ -z "$targets" ]] && { echo "$dd"; return; }
+
+    local p v data decoded
+    while read -r p v data; do
+        [[ -z "$data" ]] && continue
+        decoded=$(decode_calldata_4byte "$data")
+        [[ -z "$decoded" ]] && continue
+        dd=$(echo "$dd" | jq --argjson p "$p" --argjson v "$v" --argjson dec "$decoded" \
+            '.parameters[$p].valueDecoded[$v].dataDecoded = $dec')
+    done <<< "$targets"
+
+    echo "$dd"
+}
+
+# Utility function to print a human-readable summary of the nested operations.
+print_decoded_operations() {
+    local dd="$1"
+
+    print_header "Decoded Call Operations"
+    echo "$dd" | jq -r '
+        [.parameters[]?.valueDecoded[]?] as $ops |
+        if ($ops | length) == 0 then
+            "No nested operations found."
+        else
+            $ops | to_entries[] |
+            (if .value.operation == 1 then "DELEGATECALL" else "CALL" end) as $op |
+            "[\(.key)] \($op) -> \(.value.to)" +
+            (if (.value.value // "0") != "0" then "  value=\(.value.value)" else "" end) +
+            "\n    " +
+            (if .value.dataDecoded == null then
+                "(unable to decode selector \((.value.data // "0x")[0:10]))"
+            else
+                .value.dataDecoded.method + "(" +
+                ((.value.dataDecoded.parameters // []) | map(.value | tostring) | join(", ")) +
+                ")"
+            end)
+        end'
+}
+
 # Utility function to print the ABI-decoded transaction data.
 print_decoded_data() {
     local data_decoded=$1
+
+    # Best-effort enrichment of nested calls via the 4byte directory.
+    if [[ "$decode_calls" == "true" && "$data_decoded" != "0x" ]]; then
+        data_decoded=$(enrich_decoded_data "$data_decoded")
+    fi
 
     if [[ "$data_decoded" == "0x" ]]; then
         print_field "Method" "0x (ETH Transfer)"
@@ -338,6 +470,11 @@ print_decoded_data() {
                 echo -e "${BOLD}${RED}WARNING: The \"$nested_method\" function modifies the owners or threshold of the Safe! Proceed with caution!${RESET}"
             fi
         done
+
+        # Print a human-readable summary of the nested operations when decoding is enabled.
+        if [[ "$decode_calls" == "true" ]]; then
+            print_decoded_operations "$data_decoded"
+        fi
     fi
 }
 
@@ -626,6 +763,7 @@ calculate_safe_hashes() {
     local offline_gas_token="0x0000000000000000000000000000000000000000"
     local offline_refund_receiver="0x0000000000000000000000000000000000000000"
     local print_mst_calldata=false
+    local decode_calls=false
 
     # Parse command line arguments
     while [[ $# -gt 0 ]]; do
@@ -634,6 +772,7 @@ calculate_safe_hashes() {
             --help) usage ;;
             --offline) offline=true; shift ;;
             --print-mst-calldata) print_mst_calldata=true; shift ;;
+            --decode-calls) decode_calls=true; shift ;;
             --untrusted) untrusted=true; shift ;;
             --network) network="$2"; shift 2 ;;
             --address) address="$2"; shift 2 ;;
